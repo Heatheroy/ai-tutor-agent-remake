@@ -17,6 +17,10 @@ class Settings(BaseSettings):
     
     groq_api_key: str = ""
     groq_model: str = "openai/gpt-oss-20b"
+
+    moonshot_api_key: str = ""
+    moonshot_base_url: str = "https://api.moonshot.cn/v1"
+    moonshot_model: str = "moonshot-v1-8k"
     
     llm_temperature: float = 0.0
 

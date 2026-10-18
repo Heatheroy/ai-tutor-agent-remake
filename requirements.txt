@@ -164,3 +164,4 @@ langchain-chroma
 langchain-huggingface
 sentence-transformers==6.1.0
 fastapi==0.136.1
+langchain-openai==1.7.2
