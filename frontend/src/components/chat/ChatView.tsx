@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import {
   Send,
@@ -9,7 +10,9 @@ import {
   Plus,
   MessageSquare,
   Trash2,
+  Library,
 } from 'lucide-react';
+import { Bookshelf, type LibraryDocument } from '../library/Bookshelf';
 
 interface Message {
   role: 'user' | 'assistant';
@@ -18,6 +21,12 @@ interface Message {
   confidence?: number;
   source_type?: 'RAG' | 'WEB' | 'NONE';
   trace?: string[];
+  metrics?: {
+    total_ms?: number;
+    prompt_tokens?: number;
+    completion_tokens?: number;
+    total_tokens?: number;
+  };
 }
 
 interface ChatSession {
@@ -25,17 +34,42 @@ interface ChatSession {
   title: string;
   messages: Message[];
   documentId: string | null;
+  documentName?: string | null;
   createdAt: string;
   updatedAt: string;
 }
 
 const CHAT_HISTORY_KEY = 'ai-tutor-chat-history-v2';
 const CURRENT_DOCUMENT_KEY = 'ai-tutor-current-document-v2';
+const CURRENT_DOCUMENT_NAME_KEY = 'ai-tutor-current-document-name-v2';
+
+function formatDuration(totalMs?: number) {
+  if (totalMs == null) {
+    return '—';
+  }
+  if (totalMs < 1000) {
+    return `${Math.round(totalMs)} ms`;
+  }
+  return `${(totalMs / 1000).toFixed(1)} s`;
+}
+
+function formatTokens(metrics: NonNullable<Message['metrics']>) {
+  const total = metrics.total_tokens ?? 0;
+  const prompt = metrics.prompt_tokens ?? 0;
+  const completion = metrics.completion_tokens ?? 0;
+  if (!total && !prompt && !completion) {
+    return '用量不可用';
+  }
+  return `${total}（输入 ${prompt} / 输出 ${completion}）`;
+}
 
 export const ChatView = () => {
+  const navigate = useNavigate();
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [inChat, setInChat] = useState(false);
+  const [libraryVersion, setLibraryVersion] = useState(0);
 
   /*
    * Restore the currently selected PDF immediately.
@@ -44,6 +78,13 @@ export const ChatView = () => {
   const [documentId, setDocumentId] = useState<string | null>(() => {
     try {
       return localStorage.getItem(CURRENT_DOCUMENT_KEY);
+    } catch {
+      return null;
+    }
+  });
+  const [documentName, setDocumentName] = useState<string | null>(() => {
+    try {
+      return localStorage.getItem(CURRENT_DOCUMENT_NAME_KEY);
     } catch {
       return null;
     }
@@ -183,7 +224,8 @@ export const ChatView = () => {
   const persistChat = (
     chatId: string,
     chatMessages: Message[],
-    chatDocumentId: string | null
+    chatDocumentId: string | null,
+    chatDocumentName: string | null
   ) => {
     if (chatMessages.length === 0) {
       return;
@@ -203,7 +245,7 @@ export const ChatView = () => {
         firstUserMessage?.content
           ?.trim()
           .slice(0, 45) ||
-        'New conversation';
+        '新对话';
 
       const existingChat =
         existingHistory.find(
@@ -215,6 +257,7 @@ export const ChatView = () => {
         title,
         messages: chatMessages,
         documentId: chatDocumentId,
+        documentName: chatDocumentName,
         createdAt:
           existingChat?.createdAt ||
           new Date().toISOString(),
@@ -295,27 +338,18 @@ export const ChatView = () => {
         await res.json();
 
       if (res.ok) {
-        /*
-         * The backend has indexed the document.
-         * Save its ID/name so it survives navigation.
-         */
-        setDocumentId(
-          data.name
-        );
-
-        localStorage.setItem(
-          CURRENT_DOCUMENT_KEY,
-          data.name
-        );
-
-        alert(
-          `Document ${data.name} uploaded and indexed successfully.`
-        );
+        const nextId = data.document_id || data.name;
+        const nextName = data.name || nextId;
+        setDocumentId(nextId);
+        setDocumentName(nextName);
+        localStorage.setItem(CURRENT_DOCUMENT_KEY, nextId);
+        localStorage.setItem(CURRENT_DOCUMENT_NAME_KEY, nextName);
+        setLibraryVersion((value) => value + 1);
       } else {
         alert(
           data.detail ||
             data.message ||
-            'Error uploading file'
+            '上传文件失败'
         );
       }
     } catch (error) {
@@ -325,7 +359,7 @@ export const ChatView = () => {
       );
 
       alert(
-        'Network error uploading file'
+        '上传文件时网络出错'
       );
     }
 
@@ -402,7 +436,8 @@ export const ChatView = () => {
     persistChat(
       chatId,
       messagesAfterUser,
-      documentId
+      documentId,
+      documentName
     );
 
     setInput('');
@@ -443,7 +478,7 @@ export const ChatView = () => {
         role: 'assistant',
         content:
           data.answer ||
-          'Sorry, I could not generate an answer.',
+          '抱歉，这次没能生成回答。',
         source:
           data.source,
         confidence:
@@ -452,6 +487,8 @@ export const ChatView = () => {
           data.source_type,
         trace:
           data.trace,
+        metrics:
+          data.metrics,
       };
 
       const completeMessages = [
@@ -469,7 +506,8 @@ export const ChatView = () => {
       persistChat(
         chatId,
         completeMessages,
-        documentId
+        documentId,
+        documentName
       );
     } catch (error) {
       console.error(
@@ -480,7 +518,7 @@ export const ChatView = () => {
       const errorMessage: Message = {
         role: 'assistant',
         content:
-          'Sorry, there was an error processing your request.',
+          '抱歉，处理你的请求时出错了。',
       };
 
       const completeMessages = [
@@ -495,7 +533,8 @@ export const ChatView = () => {
       persistChat(
         chatId,
         completeMessages,
-        documentId
+        documentId,
+        documentName
       );
     } finally {
       setIsLoading(false);
@@ -507,19 +546,35 @@ export const ChatView = () => {
   // =========================================================
 
   const handleNewChat = () => {
-    /*
-     * Do NOT delete history.
-     *
-     * Start a completely fresh conversation.
-     */
     setMessages([]);
     setInput('');
     setCurrentChatId(null);
+    setInChat(false);
+  };
 
-    /*
-     * IMPORTANT:
-     * Keep the currently selected PDF.
-     */
+  const rememberDocument = (document: LibraryDocument) => {
+    setDocumentId(document.id);
+    setDocumentName(document.name);
+    localStorage.setItem(CURRENT_DOCUMENT_KEY, document.id);
+    localStorage.setItem(CURRENT_DOCUMENT_NAME_KEY, document.name);
+  };
+
+  const handleAskFromShelf = (document: LibraryDocument) => {
+    rememberDocument(document);
+    setMessages([]);
+    setInput('');
+    setCurrentChatId(null);
+    setInChat(true);
+  };
+
+  const handlePlayFromShelf = (document: LibraryDocument) => {
+    rememberDocument(document);
+    navigate(`/game?document=${document.id}`);
+  };
+
+  const handleExploreFromShelf = (document: LibraryDocument) => {
+    rememberDocument(document);
+    navigate(`/quest?document=${document.id}`);
   };
 
   // =========================================================
@@ -536,6 +591,7 @@ export const ChatView = () => {
     setCurrentChatId(
       chat.id
     );
+    setInChat(true);
 
     setInput('');
 
@@ -547,16 +603,27 @@ export const ChatView = () => {
       setDocumentId(
         chat.documentId
       );
+      setDocumentName(chat.documentName || null);
 
       localStorage.setItem(
         CURRENT_DOCUMENT_KEY,
         chat.documentId
       );
+      if (chat.documentName) {
+        localStorage.setItem(
+          CURRENT_DOCUMENT_NAME_KEY,
+          chat.documentName
+        );
+      }
     } else {
       setDocumentId(null);
+      setDocumentName(null);
 
       localStorage.removeItem(
         CURRENT_DOCUMENT_KEY
+      );
+      localStorage.removeItem(
+        CURRENT_DOCUMENT_NAME_KEY
       );
     }
   };
@@ -599,6 +666,7 @@ export const ChatView = () => {
       setCurrentChatId(
         null
       );
+      setInChat(false);
     }
   };
 
@@ -613,7 +681,7 @@ export const ChatView = () => {
       return new Date(
         dateString
       ).toLocaleString(
-        undefined,
+        'zh-CN',
         {
           day: '2-digit',
           month: 'short',
@@ -682,7 +750,7 @@ export const ChatView = () => {
             }}
           >
             <Plus size={16} />
-            New Chat
+            新对话
           </button>
         </div>
 
@@ -695,7 +763,7 @@ export const ChatView = () => {
               '0.85rem',
           }}
         >
-          💬 Chat History
+          💬 对话记录
         </div>
 
         <div
@@ -720,7 +788,7 @@ export const ChatView = () => {
                   'center',
               }}
             >
-              No previous chats yet.
+              还没有历史对话。
             </div>
           ) : (
             chatHistory.map(
@@ -834,6 +902,7 @@ export const ChatView = () => {
                         >
                           📄{' '}
                           {
+                            chat.documentName ||
                             chat.documentId
                           }
                         </div>
@@ -862,7 +931,7 @@ export const ChatView = () => {
                         color:
                           'var(--muted)',
                       }}
-                      title="Delete chat"
+                      title="删除对话"
                     >
                       <Trash2
                         size={13}
@@ -880,6 +949,17 @@ export const ChatView = () => {
           MAIN CHAT
       ==================================================== */}
 
+      {!inChat ? (
+        <div style={{ flex: 1, minWidth: 0, height: '100%', overflowY: 'auto' }}>
+          <Bookshelf
+            refreshToken={libraryVersion}
+            onAsk={handleAskFromShelf}
+            onPlay={handlePlayFromShelf}
+            onExplore={handleExploreFromShelf}
+            onUploaded={() => setLibraryVersion((value) => value + 1)}
+          />
+        </div>
+      ) : (
       <div
         style={{
           display:
@@ -908,7 +988,7 @@ export const ChatView = () => {
         >
           <div>
             <h2>
-              💬 AI Tutor Chat
+              💬 AI 导师对话
             </h2>
 
             <p
@@ -919,13 +999,22 @@ export const ChatView = () => {
                   '0.85rem',
               }}
             >
-              {documentId
-                ? `Grounded in ${documentId}`
-                : 'No document loaded — web search fallback active.'}
+              {documentName || documentId
+                ? `基于 ${documentName || documentId}`
+                : '尚未载入文档，将使用网络搜索。'}
             </p>
           </div>
 
-          <div>
+          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+            <button
+              type="button"
+              className="btn"
+              onClick={handleNewChat}
+              style={{ fontSize: '0.85rem', padding: '0.5rem 1rem' }}
+            >
+              <Library size={16} />
+              书架
+            </button>
             <input
               type="file"
               id="file-upload"
@@ -954,7 +1043,7 @@ export const ChatView = () => {
               <Upload
                 size={16}
               />
-              Upload PDF
+              上传 PDF
             </label>
           </div>
         </div>
@@ -991,15 +1080,14 @@ export const ChatView = () => {
               }}
             >
               <div className="eyebrow">
-                Welcome
+                对话
               </div>
 
               <h1>
-                How can I help you{' '}
+                问问{' '}
                 <span className="grad-text">
-                  learn
-                </span>{' '}
-                today?
+                  这本书
+                </span>
               </h1>
 
               <p
@@ -1008,8 +1096,7 @@ export const ChatView = () => {
                     '1rem auto',
                 }}
               >
-                Upload a document or just
-                start asking questions.
+                问题会基于你从书架打开的 PDF。
               </p>
 
               {documentId && (
@@ -1036,7 +1123,7 @@ export const ChatView = () => {
                   <FileIcon
                     size={14}
                   />
-                  {documentId}
+                  {documentName || documentId}
                 </div>
               )}
             </div>
@@ -1079,8 +1166,8 @@ export const ChatView = () => {
                   >
                     {msg.role ===
                     'user'
-                      ? '🧑‍🎓 You'
-                      : '🎓 Tutor'}
+                      ? '🧑‍🎓 你'
+                      : '🎓 导师'}
                   </div>
 
                   <div
@@ -1170,7 +1257,23 @@ export const ChatView = () => {
                                 12
                               }
                             />
-                            Web Search
+                            网络搜索
+                          </span>
+                        )}
+
+                        {msg.metrics && (
+                          <span
+                            style={{
+                              fontSize: '0.75rem',
+                              border: '1px solid var(--border)',
+                              color: 'var(--muted)',
+                              padding: '2px 8px',
+                              borderRadius: '99px',
+                            }}
+                          >
+                            {formatDuration(msg.metrics.total_ms)}
+                            {' · '}
+                            {formatTokens(msg.metrics)}
                           </span>
                         )}
 
@@ -1201,7 +1304,7 @@ export const ChatView = () => {
                                 12
                               }
                             />
-                            Confidence:{' '}
+                            置信度：{' '}
                             {
                               msg.confidence
                             }%
@@ -1223,7 +1326,7 @@ export const ChatView = () => {
                   'var(--muted)',
               }}
             >
-              🤖 Agent is thinking...
+              🤖 导师正在思考…
             </div>
           )}
 
@@ -1250,7 +1353,7 @@ export const ChatView = () => {
           <input
             type="text"
             className="input"
-            placeholder="Ask a question about your study material..."
+            placeholder="就这份学习材料提问…"
             value={
               input
             }
@@ -1283,6 +1386,7 @@ export const ChatView = () => {
           </button>
         </form>
       </div>
+      )}
     </div>
   );
 };

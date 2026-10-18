@@ -1,9 +1,11 @@
 from typing import List, Dict, Any, Optional
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 import app.ui.backend as backend
+from app.rag.library import get_document, pdf_path
 
 app = FastAPI(title="AI Tutor API")
 
@@ -52,6 +54,13 @@ class MindmapRequest(BaseModel):
     topic: str
     document_id: Optional[str] = None
 
+class MemoryGameRequest(BaseModel):
+    document_id: str
+    pair_count: int = 6
+
+class QuestRequest(BaseModel):
+    document_id: str
+
 
 @app.post("/api/upload")
 async def upload_document(file: UploadFile = File(...)):
@@ -70,6 +79,36 @@ async def upload_document(file: UploadFile = File(...)):
     if result.get("status") == "error":
         raise HTTPException(status_code=400, detail=result.get("message"))
     return result
+
+@app.get("/api/documents")
+async def list_documents():
+    from app.rag.library import list_documents as load_documents
+
+    return {"documents": load_documents()}
+
+@app.get("/api/documents/{document_id}/file")
+async def document_file(document_id: str):
+    record = get_document(document_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Document not found")
+    try:
+        path = pdf_path(document_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Document not found")
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="PDF file is missing")
+    return FileResponse(
+        path,
+        media_type="application/pdf",
+        filename=record.get("name") or f"{document_id}.pdf",
+        content_disposition_type="inline",
+    )
+
+@app.delete("/api/documents/{document_id}")
+async def delete_uploaded_document(document_id: str):
+    if not backend.forget_document(document_id):
+        raise HTTPException(status_code=404, detail="Document not found")
+    return {"status": "ok"}
 
 @app.post("/api/chat")
 async def chat(request: ChatRequest):
@@ -145,3 +184,22 @@ async def create_mindmap(request: MindmapRequest):
         document_id=request.document_id,
     )
     return {"code": result}
+
+@app.post("/api/games/memory")
+async def create_memory_game(request: MemoryGameRequest):
+    try:
+        pairs = backend.generate_memory_pairs(
+            document_id=request.document_id,
+            pair_count=request.pair_count,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"pairs": pairs}
+
+@app.post("/api/quests")
+async def create_quest(request: QuestRequest):
+    try:
+        quest = backend.generate_quest(request.document_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"quest": quest}

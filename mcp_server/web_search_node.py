@@ -178,7 +178,7 @@ async def _async_web_search_node(
 
             web_documents.append(
                 Document(
-                    page_content=snippet,
+                    page_content=f"Web result: {snippet}",
                     metadata={
                         "source": item.get(
                             "url",

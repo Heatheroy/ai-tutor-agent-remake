@@ -1,8 +1,11 @@
+from dotenv import load_dotenv
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+load_dotenv()
 class Settings(BaseSettings):
     chunk_size: int = 500
     chunk_overlap: int = 50
-    embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
+    embedding_model: str = "models/all-MiniLM-L6-v2"
     chroma_collection_name: str = "ai_tutor"
     chroma_persist_dir: str = "chroma_db"
 

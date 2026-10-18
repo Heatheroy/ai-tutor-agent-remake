@@ -1,17 +1,17 @@
 import json
 import logging
+import re
 from typing import TypedDict, List
 
 from langchain_core.documents import Document
-from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_groq import ChatGroq
 from langgraph.graph import StateGraph, END
 
 from app.rag.retriever import retrieve
 from app.prompts.prompt_manager import PromptManager
 from app.rag.config import settings
+from app.llm_factory import make_llm
 from mcp_server.web_search_node import web_search_node
-from app.metrics import start_timer, elapsed_ms, create_metrics
+from app.metrics import start_timer, elapsed_ms, create_metrics, add_token_usage
 
 # ============================================================
 # LOGGING
@@ -50,24 +50,7 @@ class TutorState(TypedDict, total=False):
 # LLM
 # ============================================================
 
-# Dynamic LLM Initialization based on active configuration
-if settings.groq_api_key:
-    llm = ChatGroq(
-        model=settings.groq_model,
-        temperature=settings.llm_temperature,
-        api_key=settings.groq_api_key,
-        max_tokens=4000
-    )
-elif settings.google_api_key:
-    llm = ChatGoogleGenerativeAI(
-        model=settings.gemini_model,
-        temperature=settings.llm_temperature,
-        google_api_key=settings.google_api_key
-    )
-else:
-    raise ValueError(
-        "No API key provided. Please set either GOOGLE_API_KEY or GROQ_API_KEY in your .env file."
-    )
+llm = make_llm(settings.llm_temperature)
 
 
 # ============================================================
@@ -202,12 +185,11 @@ def grade_node(state: TutorState) -> dict:
 
     logger.debug("[GRADER OUTPUT]: %s", response_text)
 
-    # Parse grader JSON
+    # Parse grader JSON. Gemini often wraps the object in ```json fences.
     try:
-        result = json.loads(response_text)
-        relevance = result.get("relevance", "none").lower()
+        relevance = parse_relevance(response_text)
 
-    except (json.JSONDecodeError, AttributeError):
+    except (json.JSONDecodeError, AttributeError, TypeError):
         logger.warning(
             "Could not parse grader response: %s",
             response_text
@@ -224,12 +206,12 @@ def grade_node(state: TutorState) -> dict:
 
     logger.info("Relevance: %s", relevance)
 
+    metrics = add_token_usage(state.get("metrics", create_metrics()), response)
+    metrics["grade_ms"] = elapsed_ms(timer)
+
     return {
         "relevance": relevance,
-        "metrics": {
-            **state.get("metrics", create_metrics()),
-            "grade_ms": elapsed_ms(timer),
-        },
+        "metrics": metrics,
     }
 
 
@@ -269,13 +251,12 @@ def generate_node(state: TutorState) -> dict:
     # Generate answer using LLM
     response = llm.invoke(formatted_prompt)
     answer = extract_text(response)
+    metrics = add_token_usage(state.get("metrics", create_metrics()), response)
+    metrics["generate_ms"] = elapsed_ms(timer)
 
     return {
         "student_answer": answer,
-        "metrics": {
-            **state.get("metrics", create_metrics()),
-            "generate_ms": elapsed_ms(timer),
-        },
+        "metrics": metrics,
     }
 
 
@@ -296,14 +277,36 @@ def generate_node(state: TutorState) -> dict:
 # CONDITIONAL ROUTING
 # ============================================================
 
+def parse_relevance(response_text: str) -> str:
+    """Read the grader's relevance label, including fenced JSON."""
+
+    text = response_text.strip()
+    fenced = re.search(
+        r"```(?:json)?\s*(.*?)\s*```",
+        text,
+        flags=re.DOTALL | re.IGNORECASE,
+    )
+    if fenced:
+        text = fenced.group(1).strip()
+    else:
+        start = text.find("{")
+        end = text.rfind("}")
+        if start != -1 and end > start:
+            text = text[start:end + 1]
+
+    result = json.loads(text)
+    return str(result.get("relevance", "none")).lower()
+
+
 def route_after_grading(state: TutorState) -> str:
 
     relevance = state.get("relevance", "none")
 
-    if relevance == "full":
+    # The uploaded document can answer fully or partly: stay with it.
+    # Search only when the document does not cover the question.
+    if relevance in {"full", "partial"}:
         return "generate"
 
-    # Partial or none → use web search
     return "web_search"
 
 

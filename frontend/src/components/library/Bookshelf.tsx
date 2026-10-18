@@ -1,0 +1,224 @@
+import { useEffect, useState, type ChangeEvent } from 'react';
+import { Loader2, MessageSquare, Puzzle, Swords, Trash2, Upload } from 'lucide-react';
+
+export interface LibraryDocument {
+  id: string;
+  name: string;
+  pages: number;
+  chunks: number;
+  uploaded_at: string;
+}
+
+function coverTitle(fileName: string) {
+  const bare = fileName.replace(/\.pdf$/i, '').trim();
+  if (!bare) {
+    return '未命名';
+  }
+  if (/\s/.test(bare)) {
+    return bare.split(/\s+/).slice(0, 10).join(' ');
+  }
+  return Array.from(bare).slice(0, 10).join('');
+}
+
+interface BookshelfProps {
+  refreshToken: number;
+  onAsk: (document: LibraryDocument) => void;
+  onPlay: (document: LibraryDocument) => void;
+  onExplore: (document: LibraryDocument) => void;
+  onUploaded: () => void;
+}
+
+export const Bookshelf = ({
+  refreshToken,
+  onAsk,
+  onPlay,
+  onExplore,
+  onUploaded,
+}: BookshelfProps) => {
+  const [documents, setDocuments] = useState<LibraryDocument[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isUploading, setIsUploading] = useState(false);
+  const [reading, setReading] = useState<LibraryDocument | null>(null);
+  const [error, setError] = useState('');
+
+  const loadDocuments = async () => {
+    setIsLoading(true);
+    setError('');
+    try {
+      const res = await fetch('/api/documents');
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.detail || '无法加载书架');
+      }
+      setDocuments(Array.isArray(data.documents) ? data.documents : []);
+    } catch (err) {
+      console.error(err);
+      setError('无法加载已上传的 PDF。');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadDocuments();
+  }, [refreshToken]);
+
+  const handleUpload = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) {
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append('file', file);
+    setIsUploading(true);
+    setError('');
+    try {
+      const res = await fetch('/api/upload', { method: 'POST', body: formData });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.detail || data.message || '上传失败');
+      }
+      onUploaded();
+      await loadDocuments();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '上传失败');
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const handleDelete = async (document: LibraryDocument) => {
+    if (!window.confirm(`从书架移除 ${document.name}？`)) {
+      return;
+    }
+    const res = await fetch(`/api/documents/${document.id}`, { method: 'DELETE' });
+    if (!res.ok) {
+      setError('无法移除这份 PDF。');
+      return;
+    }
+    if (reading?.id === document.id) {
+      setReading(null);
+    }
+    await loadDocuments();
+  };
+
+  if (reading) {
+    return (
+      <div className="reader-panel">
+        <div className="reader-toolbar">
+          <div>
+            <div className="eyebrow">正在阅读</div>
+            <h2>{reading.name}</h2>
+          </div>
+          <div className="reader-actions">
+            <button className="btn" type="button" onClick={() => onExplore(reading)}>
+              <Swords size={16} />
+              闯关
+            </button>
+            <button className="btn" type="button" onClick={() => onPlay(reading)}>
+              <Puzzle size={16} />
+              记忆配对
+            </button>
+            <button className="btn btn-primary" type="button" onClick={() => onAsk(reading)}>
+              <MessageSquare size={16} />
+              问导师
+            </button>
+            <button className="btn" type="button" onClick={() => setReading(null)}>
+              回到书架
+            </button>
+          </div>
+        </div>
+        <iframe
+          className="pdf-frame"
+          title={reading.name}
+          src={`/api/documents/${reading.id}/file`}
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div className="shelf-page">
+      <div className="hero">
+        <div className="eyebrow">欢迎</div>
+        <h1>
+          你的文档，像一排<span className="grad-text">书</span>
+        </h1>
+        <p>
+          上传 PDF 放到书架上。打开一本书可以阅读、向导师提问，或用其中的术语玩记忆配对。
+        </p>
+        <div className="shelf-upload">
+          <input
+            id="shelf-upload"
+            type="file"
+            accept=".pdf"
+            hidden
+            onChange={handleUpload}
+          />
+          <label htmlFor="shelf-upload" className="btn btn-primary">
+            {isUploading ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16} />}
+            {isUploading ? '正在索引…' : '上传 PDF'}
+          </label>
+        </div>
+      </div>
+
+      {error && <p className="shelf-error">{error}</p>}
+
+      {isLoading ? (
+        <div className="shelf-empty">
+          <Loader2 className="animate-spin" />
+        </div>
+      ) : documents.length === 0 ? (
+        <div className="shelf-empty">书架还是空的。上传一份 PDF 开始吧。</div>
+      ) : (
+        <div className="bookshelf">
+          {documents.map((document) => (
+            <article className="shelf-book" key={document.id}>
+              <button
+                type="button"
+                className="book"
+                onClick={() => setReading(document)}
+                title={document.name}
+              >
+                <span className="book-3d">
+                  <span className="book-pages" />
+                  <span className="book-board">
+                    <span className="book-spine" />
+                    <span className="book-cover">
+                      <span className="book-title">{coverTitle(document.name)}</span>
+                      <span className="book-meta">{document.pages} 页</span>
+                    </span>
+                  </span>
+                </span>
+              </button>
+              <div className="book-actions">
+                <button type="button" className="btn" onClick={() => setReading(document)}>
+                  阅读
+                </button>
+                <button type="button" className="btn" onClick={() => onAsk(document)}>
+                  提问
+                </button>
+                <button type="button" className="btn" onClick={() => onPlay(document)}>
+                  开始
+                </button>
+                <button type="button" className="btn" onClick={() => onExplore(document)}>
+                  闯关
+                </button>
+                <button
+                  type="button"
+                  className="btn book-delete"
+                  onClick={() => handleDelete(document)}
+                  aria-label={`移除 ${document.name}`}
+                >
+                  <Trash2 size={14} />
+                </button>
+              </div>
+            </article>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};

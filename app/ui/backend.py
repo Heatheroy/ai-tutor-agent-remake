@@ -21,14 +21,24 @@ from typing import Any, Dict, List, Optional
 
 import json
 
-from langchain_groq import ChatGroq
 from app.rag.config import settings
+from app.llm_factory import make_llm
 from app.graph import tutor_graph, llm, extract_text
 from app.prompts.prompt_manager import PromptManager
 from app.rag.chunker import chunk_pages
+from app.rag.library import (
+    get_document,
+    new_document_id,
+    remove_stored_document,
+    save_pdf,
+)
 from app.rag.pdf_parser import parse_pdf
 from app.rag.retriever import retrieve
-from app.rag.vector_store import add_chunks
+from app.rag.vector_store import (
+    add_chunks,
+    delete_document,
+    get_all_chunks_for_document,
+)
 from app.metrics import start_timer, elapsed_ms
 from app.rag.spaced_repetition import calculate_sm2
 from app.study_plan.planner import (
@@ -85,6 +95,8 @@ def ingest_document(uploaded_file: Any) -> Dict[str, Any]:
             # ------------------------------------------------
 
             pages = parse_pdf(temp_path)
+            content = uploaded_file.getvalue()
+            document_id = new_document_id()
 
             # ------------------------------------------------
             # 2. Chunk PDF
@@ -92,25 +104,41 @@ def ingest_document(uploaded_file: Any) -> Dict[str, Any]:
 
             chunks = chunk_pages(
                 pages=pages,
-                document_id=file_name,
+                document_id=document_id,
                 source_name=file_name,
             )
 
             # ------------------------------------------------
-            # 3. Store in ChromaDB
+            # 3. Store in ChromaDB, then keep the original PDF
             # ------------------------------------------------
 
             add_chunks(chunks)
+            try:
+                save_pdf(
+                    document_id=document_id,
+                    content=content,
+                    name=file_name,
+                    pages=len(pages),
+                    chunks=len(chunks),
+                )
+            except Exception:
+                try:
+                    delete_document(document_id)
+                except Exception:
+                    pass
+                raise
 
             return {
                 "status": "ok",
                 "chunks": len(chunks),
                 "name": file_name,
+                "document_id": document_id,
+                "pages": len(pages),
                 "message": f"{len(chunks)} chunks indexed successfully.",
             }
 
         finally:
-            # Remove temporary PDF
+            # Remove temporary PDF. The library copy is kept.
             try:
                 os.remove(temp_path)
             except OSError:
@@ -329,12 +357,7 @@ def generate_quiz(
     )
 
     try:
-        quiz_llm = ChatGroq(
-            model=settings.groq_model,
-            temperature=0,
-            api_key=settings.groq_api_key,
-            max_tokens=4000,
-        )
+        quiz_llm = make_llm(temperature=0)
 
         response = quiz_llm.invoke(formatted_prompt)
         response_text = extract_text(response).strip()
@@ -381,6 +404,243 @@ def get_flashcards(
     except Exception as exc:
         print(f"Error generating flashcards: {exc}")
         return []
+
+
+def forget_document(document_id: str) -> bool:
+    """Remove a stored PDF and its indexed chunks."""
+    removed = remove_stored_document(document_id)
+    if not removed:
+        return False
+    try:
+        delete_document(document_id)
+    except Exception:
+        pass
+    return True
+
+
+_MEMORY_CONTEXT_CHARS = 8000
+
+
+def _sample_document_context(chunks: List[str], limit: int = _MEMORY_CONTEXT_CHARS) -> str:
+    texts = [chunk.strip() for chunk in chunks if chunk and chunk.strip()]
+    if not texts:
+        return ""
+
+    if sum(len(text) for text in texts) <= limit:
+        return "\n\n".join(texts)
+
+    picked: List[str] = []
+    used = 0
+    step = max(1, len(texts) // 12)
+    for index in range(0, len(texts), step):
+        piece = texts[index]
+        if used + len(piece) > limit:
+            remaining = limit - used
+            if remaining > 200:
+                picked.append(piece[:remaining])
+            break
+        picked.append(piece)
+        used += len(piece) + 2
+    return "\n\n".join(picked)
+
+
+def _normalize_memory_pairs(raw: Any, pair_count: int) -> Optional[List[Dict[str, str]]]:
+    if not isinstance(raw, list):
+        return None
+
+    seen = set()
+    pairs: List[Dict[str, str]] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        term = str(item.get("term", "")).strip()
+        definition = str(item.get("definition", "")).strip()
+        key = term.casefold()
+        if (
+            not term
+            or not definition
+            or key in seen
+            or term.casefold() == definition.casefold()
+        ):
+            continue
+        seen.add(key)
+        pairs.append({"term": term, "definition": definition})
+        if len(pairs) == pair_count:
+            return pairs
+    return None
+
+
+def generate_memory_pairs(
+    document_id: str,
+    pair_count: int = 6,
+) -> List[Dict[str, str]]:
+    """Build term/definition pairs from one indexed PDF."""
+    pair_count = max(1, min(8, int(pair_count)))
+    record = get_document(document_id)
+    if record is None:
+        raise ValueError("Document not found.")
+
+    context = _sample_document_context(
+        get_all_chunks_for_document(document_id)
+    )
+    if not context:
+        raise ValueError("This document has no indexed text.")
+
+    prompt_template = PromptManager.get_memory_prompt()
+    safe_name = str(record.get("name") or document_id).replace("{", "").replace("}", "")
+    safe_context = context.replace("{", "(").replace("}", ")")
+    formatted_prompt = prompt_template.format(
+        name=safe_name,
+        count=pair_count,
+        context=safe_context,
+    )
+
+    last_error = "Could not build memory pairs from this document."
+    for _ in range(2):
+        try:
+            response = llm.invoke(formatted_prompt)
+            response_text = _extract_json_from_response(
+                extract_text(response).strip()
+            )
+            pairs = _normalize_memory_pairs(
+                json.loads(response_text),
+                pair_count,
+            )
+            if pairs:
+                return pairs
+        except Exception as exc:
+            last_error = str(exc)
+
+    raise ValueError(last_error)
+
+
+_GENRES = {
+    "research": "research",
+    "科研": "research",
+    "teaching": "teaching",
+    "教学": "teaching",
+    "exam": "exam",
+    "试题": "exam",
+    "quiz": "exam",
+}
+
+
+def _normalize_quest_question(item: Any) -> Optional[Dict[str, Any]]:
+    if not isinstance(item, dict):
+        return None
+    question = str(item.get("q", "")).strip()
+    why = str(item.get("why", "")).strip()
+    answer = str(item.get("answer", "")).strip()
+    raw_options = item.get("options")
+    if not question or not answer or not isinstance(raw_options, list):
+        return None
+    options = []
+    for option in raw_options:
+        text = str(option).strip()
+        if text and text not in options:
+            options.append(text)
+    if len(options) < 4 or answer not in options:
+        return None
+    return {
+        "q": question,
+        "options": options[:4],
+        "answer": answer,
+        "why": why or "Review this idea in the document.",
+    }
+
+
+def _normalize_quest(raw: Any) -> Optional[Dict[str, Any]]:
+    if not isinstance(raw, dict):
+        return None
+    genre = _GENRES.get(str(raw.get("genre", "")).strip().lower())
+    if genre is None:
+        genre = _GENRES.get(str(raw.get("genre", "")).strip())
+    if genre is None:
+        return None
+
+    areas = []
+    for area in raw.get("areas") or []:
+        if not isinstance(area, dict):
+            continue
+        title = str(area.get("title", "")).strip()
+        summary = str(area.get("summary", "")).strip()
+        tasks = []
+        for task in area.get("tasks") or []:
+            if not isinstance(task, dict):
+                continue
+            concept = str(task.get("concept", "")).strip()
+            question = _normalize_quest_question(task)
+            if not concept or question is None:
+                continue
+            tasks.append({
+                "concept": concept,
+                **question,
+            })
+            if len(tasks) == 2:
+                break
+        if title and len(tasks) == 2:
+            area_id = f"area-{len(areas) + 1}"
+            for task_index, task in enumerate(tasks):
+                task["id"] = f"{area_id}-task-{task_index + 1}"
+            areas.append({
+                "id": area_id,
+                "title": title,
+                "summary": summary,
+                "tasks": tasks,
+            })
+        if len(areas) == 5:
+            break
+    if len(areas) < 3:
+        return None
+
+    boss = []
+    for item in raw.get("boss") or []:
+        question = _normalize_quest_question(item)
+        if question is None:
+            continue
+        boss.append(question)
+        if len(boss) == 5:
+            break
+    if len(boss) < 5:
+        return None
+
+    return {
+        "title": str(raw.get("title", "")).strip() or "Learning Quest",
+        "genre": genre,
+        "areas": areas,
+        "boss": boss,
+    }
+
+
+def generate_quest(document_id: str) -> Dict[str, Any]:
+    """Build a chapter quest line and a boss check from one PDF."""
+    record = get_document(document_id)
+    if record is None:
+        raise ValueError("Document not found.")
+
+    context = _sample_document_context(get_all_chunks_for_document(document_id))
+    if not context:
+        raise ValueError("This document has no indexed text.")
+
+    safe_name = str(record.get("name") or document_id).replace("{", "").replace("}", "")
+    safe_context = context.replace("{", "(").replace("}", ")")
+    formatted_prompt = PromptManager.get_quest_prompt().format(
+        name=safe_name,
+        context=safe_context,
+    )
+
+    last_error = "Could not build a quest from this document."
+    for _ in range(2):
+        try:
+            response = llm.invoke(formatted_prompt)
+            response_text = _extract_json_from_response(extract_text(response).strip())
+            quest = _normalize_quest(json.loads(response_text))
+            if quest:
+                return quest
+        except Exception as exc:
+            last_error = str(exc)
+
+    raise ValueError(last_error)
 
 
 def submit_flashcard_answer(

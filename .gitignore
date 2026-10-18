@@ -218,6 +218,9 @@ __marimo__/
 .streamlit/secrets.toml
 .env
 chroma_db/
+uploads/
+models/
+model.safetensors
 
 venv/
 .env

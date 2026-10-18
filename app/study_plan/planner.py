@@ -1,11 +1,6 @@
 import json
-import os
 
-from dotenv import load_dotenv
-from langchain_groq import ChatGroq
-from app.rag.config import settings
-
-load_dotenv()
+from app.llm_factory import make_llm
 
 
 def validate_input(
@@ -262,9 +257,7 @@ Return exactly this structure:
     ]
 }}
 """
-if not os.getenv("GROQ_API_KEY"):
-    raise ValueError("GROQ_API_KEY is not set. Please check your .env file.")
-llm = ChatGroq(model=settings.groq_model, temperature=0.7, max_tokens=4000)
+llm = make_llm(temperature=0.7)
 
 
 def generate_study_plan(

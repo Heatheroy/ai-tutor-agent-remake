@@ -7,14 +7,14 @@ export const FlashcardsView = () => {
   return (
     <div style={{ maxWidth: '900px', margin: '0 auto' }}>
       <div className="hero">
-        <div className="eyebrow">Interactive Learning</div>
+        <div className="eyebrow">互动学习</div>
         <h1>
-          Master any topic with{' '}
-          <span className="grad-text">Flashcards & Quizzes</span>
+          用{' '}
+          <span className="grad-text">闪卡与测验</span>
+          掌握任何主题
         </h1>
         <p>
-          Generate AI-powered flashcards with spaced repetition or test your
-          knowledge with interactive quizzes.
+          生成带间隔重复的 AI 闪卡，或用互动测验检验掌握程度。
         </p>
       </div>
 
@@ -23,14 +23,14 @@ export const FlashcardsView = () => {
           className={`btn ${activeTab === 'flashcards' ? 'btn-primary' : ''}`}
           onClick={() => setActiveTab('flashcards')}
         >
-          📇 Flashcards
+          📇 闪卡
         </button>
 
         <button
           className={`btn ${activeTab === 'quiz' ? 'btn-primary' : ''}`}
           onClick={() => setActiveTab('quiz')}
         >
-          📝 Quizzes
+          📝 测验
         </button>
       </div>
 
@@ -53,7 +53,7 @@ interface Flashcard {
 }
 
 const FlashcardsComponent = () => {
-  const [topic, setTopic] = useState('Machine Learning basics');
+  const [topic, setTopic] = useState('机器学习基础');
   const [count, setCount] = useState(5);
   const [cards, setCards] = useState<Flashcard[]>([]);
   const [currentIdx, setCurrentIdx] = useState(0);
@@ -83,13 +83,13 @@ const FlashcardsComponent = () => {
       const data = await res.json();
 
       if (!res.ok) {
-        throw new Error(data.detail || 'Failed to generate flashcards');
+        throw new Error(data.detail || '生成闪卡失败');
       }
 
       setCards(data.flashcards);
     } catch (err) {
       console.error(err);
-      alert('Error generating flashcards');
+      alert('生成闪卡失败');
     } finally {
       setIsLoading(false);
     }
@@ -136,7 +136,7 @@ const FlashcardsComponent = () => {
             color: 'var(--primary)',
           }}
         />
-        <p>Generating high-quality flashcards...</p>
+        <p>正在生成高质量闪卡…</p>
       </div>
     );
   }
@@ -156,7 +156,7 @@ const FlashcardsComponent = () => {
             marginBottom: '1rem',
           }}
         >
-          Card {currentIdx + 1} of {cards.length}
+          第 {currentIdx + 1} 张，共 {cards.length} 张
         </p>
 
         <div
@@ -218,7 +218,7 @@ const FlashcardsComponent = () => {
                   fontWeight: 800,
                 }}
               >
-                Question
+                问题
               </div>
 
               <div
@@ -271,7 +271,7 @@ const FlashcardsComponent = () => {
                   fontWeight: 800,
                 }}
               >
-                Answer
+                答案
               </div>
 
               <div
@@ -302,7 +302,7 @@ const FlashcardsComponent = () => {
                 marginBottom: '1rem',
               }}
             >
-              How well did you know this?
+              你对这张卡有多熟悉？
             </p>
 
             <div
@@ -318,7 +318,7 @@ const FlashcardsComponent = () => {
                   e.stopPropagation();
                   rateCard(0);
                 }}
-                title="Blackout"
+                title="完全不会"
               >
                 😵 0
               </button>
@@ -329,7 +329,7 @@ const FlashcardsComponent = () => {
                   e.stopPropagation();
                   rateCard(1);
                 }}
-                title="Barely"
+                title="几乎不会"
               >
                 😰 1
               </button>
@@ -340,7 +340,7 @@ const FlashcardsComponent = () => {
                   e.stopPropagation();
                   rateCard(2);
                 }}
-                title="Hard"
+                title="困难"
               >
                 😐 2
               </button>
@@ -351,7 +351,7 @@ const FlashcardsComponent = () => {
                   e.stopPropagation();
                   rateCard(3);
                 }}
-                title="OK"
+                title="还行"
               >
                 🙂 3
               </button>
@@ -362,7 +362,7 @@ const FlashcardsComponent = () => {
                   e.stopPropagation();
                   rateCard(4);
                 }}
-                title="Good"
+                title="良好"
               >
                 😊 4
               </button>
@@ -373,7 +373,7 @@ const FlashcardsComponent = () => {
                   e.stopPropagation();
                   rateCard(5);
                 }}
-                title="Perfect"
+                title="完美"
               >
                 🤩 5
               </button>
@@ -402,7 +402,7 @@ const FlashcardsComponent = () => {
           🎉
         </div>
 
-        <h2>All cards reviewed!</h2>
+        <h2>全部复习完成！</h2>
 
         <p
           style={{
@@ -410,7 +410,7 @@ const FlashcardsComponent = () => {
             marginBottom: '2rem',
           }}
         >
-          Great work! Generate more cards or revisit this set.
+          做得好。可以再生成一批，或重新看这一组。
         </p>
 
         <button
@@ -420,7 +420,7 @@ const FlashcardsComponent = () => {
             setCurrentIdx(0);
           }}
         >
-          Start Over
+          重新开始
         </button>
       </div>
     );
@@ -428,7 +428,7 @@ const FlashcardsComponent = () => {
 
   return (
     <div className="card">
-      <h3 className="mb-4">🛠️ Generate New Flashcards</h3>
+      <h3 className="mb-4">🛠️ 生成新闪卡</h3>
 
       <form
         onSubmit={generateCards}
@@ -446,7 +446,7 @@ const FlashcardsComponent = () => {
               color: 'var(--muted)',
             }}
           >
-            Topic
+            主题
           </label>
 
           <input
@@ -464,7 +464,7 @@ const FlashcardsComponent = () => {
               color: 'var(--muted)',
             }}
           >
-            Number of Cards
+            卡片数量
           </label>
 
           <input
@@ -484,7 +484,7 @@ const FlashcardsComponent = () => {
             marginTop: '1rem',
           }}
         >
-          Generate Cards
+          生成闪卡
         </button>
       </form>
     </div>
@@ -503,7 +503,7 @@ interface QuizItem {
 }
 
 const QuizComponent = () => {
-  const [topic, setTopic] = useState('Computer Networks');
+  const [topic, setTopic] = useState('计算机网络');
   const [difficulty, setDifficulty] = useState('Medium');
   const [count, setCount] = useState(5);
 
@@ -538,13 +538,13 @@ const QuizComponent = () => {
       const data = await res.json();
 
       if (!res.ok) {
-        throw new Error(data.detail || 'Failed to generate quiz');
+        throw new Error(data.detail || '生成测验失败');
       }
 
       setItems(data.quiz);
     } catch (err) {
       console.error(err);
-      alert('Error generating quiz');
+      alert('生成测验失败');
     } finally {
       setIsLoading(false);
     }
@@ -561,7 +561,7 @@ const QuizComponent = () => {
 
   const submitQuiz = () => {
     if (Object.keys(selectedAnswers).length < items.length) {
-      alert('Please answer all questions before submitting.');
+      alert('请先答完所有题目再提交。');
       return;
     }
 
@@ -598,7 +598,7 @@ const QuizComponent = () => {
           }}
         />
 
-        <p>Agent building quiz questions...</p>
+        <p>正在出题…</p>
       </div>
     );
   }
@@ -628,7 +628,7 @@ const QuizComponent = () => {
             <h3>📝 {topic}</h3>
 
             <p style={{ color: 'var(--muted)' }}>
-              {difficulty} • {items.length} questions
+              {{ Easy: '简单', Medium: '中等', Hard: '困难' }[difficulty] || difficulty} · {items.length} 题
             </p>
           </div>
 
@@ -640,7 +640,7 @@ const QuizComponent = () => {
               setIsSubmitted(false);
             }}
           >
-            ← Back to settings
+            ← 返回设置
           </button>
         </div>
 
@@ -668,7 +668,7 @@ const QuizComponent = () => {
                   textTransform: 'uppercase',
                 }}
               >
-                Score
+                得分
               </div>
 
               <div
@@ -703,7 +703,7 @@ const QuizComponent = () => {
                   textTransform: 'uppercase',
                 }}
               >
-                Percentage
+                正确率
               </div>
 
               <div
@@ -738,7 +738,7 @@ const QuizComponent = () => {
                   textTransform: 'uppercase',
                 }}
               >
-                Verdict
+                评价
               </div>
 
               <div
@@ -747,7 +747,7 @@ const QuizComponent = () => {
                   fontWeight: 'bold',
                 }}
               >
-                {score / items.length >= 0.7 ? 'Strong' : 'Review'}
+                {score / items.length >= 0.7 ? '扎实' : '需复习'}
               </div>
             </div>
           </div>
@@ -849,7 +849,7 @@ const QuizComponent = () => {
             }}
             onClick={submitQuiz}
           >
-            ✅ Submit Quiz
+            ✅ 提交测验
           </button>
         )}
 
@@ -867,7 +867,7 @@ const QuizComponent = () => {
               setIsSubmitted(false);
             }}
           >
-            📝 Take Another Quiz
+            📝 再做一套
           </button>
         )}
       </div>
@@ -876,7 +876,7 @@ const QuizComponent = () => {
 
   return (
     <div className="card">
-      <h3 className="mb-4">🛠️ Quiz Settings</h3>
+      <h3 className="mb-4">🛠️ 测验设置</h3>
 
       <form
         onSubmit={generateQuiz}
@@ -895,7 +895,7 @@ const QuizComponent = () => {
                 color: 'var(--muted)',
               }}
             >
-              Topic
+              主题
             </label>
 
             <input
@@ -913,7 +913,7 @@ const QuizComponent = () => {
                 color: 'var(--muted)',
               }}
             >
-              Difficulty
+              难度
             </label>
 
             <select
@@ -921,9 +921,9 @@ const QuizComponent = () => {
               value={difficulty}
               onChange={(e) => setDifficulty(e.target.value)}
             >
-              <option>Easy</option>
-              <option>Medium</option>
-              <option>Hard</option>
+              <option value="Easy">简单</option>
+              <option value="Medium">中等</option>
+              <option value="Hard">困难</option>
             </select>
           </div>
         </div>
@@ -936,7 +936,7 @@ const QuizComponent = () => {
               color: 'var(--muted)',
             }}
           >
-            Number of Questions: {count}
+            题目数量：{count}
           </label>
 
           <input
@@ -960,7 +960,7 @@ const QuizComponent = () => {
             marginTop: '1rem',
           }}
         >
-          Generate Quiz
+          生成测验
         </button>
       </form>
     </div>

@@ -3,6 +3,8 @@ from app.prompts.generator_prompt import GENERATOR_PROMPT
 from app.prompts.quiz_prompt import QUIZ_PROMPT
 from app.prompts.flashcard_prompt import FLASHCARD_PROMPT
 from app.prompts.mindmap_prompt import MINDMAP_PROMPT
+from app.prompts.memory_prompt import MEMORY_PROMPT
+from app.prompts.quest_prompt import QUEST_PROMPT
 
 class PromptManager:
     """
@@ -28,3 +30,11 @@ class PromptManager:
     @staticmethod
     def get_mindmap_prompt():
         return MINDMAP_PROMPT
+
+    @staticmethod
+    def get_memory_prompt():
+        return MEMORY_PROMPT
+
+    @staticmethod
+    def get_quest_prompt():
+        return QUEST_PROMPT

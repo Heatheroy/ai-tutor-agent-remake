@@ -162,4 +162,5 @@ yarl==1.24.5
 zstandard==0.25.0
 langchain-chroma
 langchain-huggingface
+sentence-transformers==6.1.0
 fastapi==0.136.1

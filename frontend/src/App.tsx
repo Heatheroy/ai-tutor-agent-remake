@@ -1,29 +1,31 @@
-import { useState, useEffect } from 'react';
-import { BrowserRouter, Routes, Route, NavLink, Navigate } from 'react-router-dom';
-import { MessageSquare, Calendar, CheckSquare, BrainCircuit, Palette } from 'lucide-react';
+import { useState, useEffect, useCallback } from 'react';
+import { BrowserRouter, Routes, Route, NavLink, Navigate, useLocation } from 'react-router-dom';
+import { MessageSquare, CheckSquare, Palette, Puzzle, Swords } from 'lucide-react';
 import './index.css';
 
 import { ChatView } from './components/chat/ChatView';
 
-import { StudyPlanView } from './components/studyplan/StudyPlanView';
-
 import { FlashcardsView } from './components/flashcards/FlashcardsView';
-
-import { MindmapView } from './components/mindmap/MindmapView';
+import { MemoryGame } from './components/game/MemoryGame';
+import { BookIntro } from './components/intro/BookIntro';
+import { LayoutEditor } from './components/layout/LayoutEditor';
+import { QuestView } from './components/quest/QuestView';
 
 function App() {
   type Theme = 'midnight-aurora' | 'forest-deep' | 'solar-flare' | 'light-frost';
   const themes: Theme[] = ['midnight-aurora', 'forest-deep', 'solar-flare', 'light-frost'];
   const themeLabels: Record<Theme, string> = {
-    'midnight-aurora': '🌌 Midnight Aurora',
-    'forest-deep': '🌲 Forest Deep',
-    'solar-flare': '🔥 Solar Flare',
-    'light-frost': '❄️ Light Frost',
+    'midnight-aurora': '🌌 极光午夜',
+    'forest-deep': '🌲 深林',
+    'solar-flare': '🔥 日焰',
+    'light-frost': '❄️ 霜白',
   };
 
   const [theme, setTheme] = useState<Theme>(
     (localStorage.getItem('app-theme') as Theme) || 'midnight-aurora'
   );
+  const [introDone, setIntroDone] = useState(false);
+  const finishIntro = useCallback(() => setIntroDone(true), []);
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
@@ -37,30 +39,56 @@ function App() {
 
   return (
     <BrowserRouter>
+      <TutorApp introDone={introDone} finishIntro={finishIntro} theme={theme} themeLabels={themeLabels} cycleTheme={cycleTheme} />
+    </BrowserRouter>
+  );
+}
+
+function TutorApp({
+  introDone,
+  finishIntro,
+  theme,
+  themeLabels,
+  cycleTheme,
+}: {
+  introDone: boolean;
+  finishIntro: () => void;
+  theme: string;
+  themeLabels: Record<string, string>;
+  cycleTheme: () => void;
+}) {
+  const location = useLocation();
+  if (location.pathname === '/layout') {
+    return <LayoutEditor />;
+  }
+
+  return (
+    <>
+      {!introDone && <BookIntro onDone={finishIntro} />}
       <div className="app-container">
         {/* Sidebar */}
         <aside className="sidebar">
           <div className="sidebar-header">
-            <h1 style={{ marginBottom: 0 }}>🎓 AI Tutor</h1>
-            <p>Multi-agent RAG learning assistant</p>
+            <h1 style={{ marginBottom: 0 }}>🎓 AI 导师</h1>
+            <p>多智能体检索学习助手</p>
           </div>
           
           <div className="nav-links">
             <NavLink to="/chat" className={({isActive}) => `nav-item ${isActive ? 'active' : ''}`}>
               <MessageSquare size={20} />
-              AI Tutor
-            </NavLink>
-            <NavLink to="/plan" className={({isActive}) => `nav-item ${isActive ? 'active' : ''}`}>
-              <Calendar size={20} />
-              Study Plan & Progress
+              AI 导师
             </NavLink>
             <NavLink to="/flashcards" className={({isActive}) => `nav-item ${isActive ? 'active' : ''}`}>
               <CheckSquare size={20} />
-              Flashcards & Quizzes
+              闪卡与测验
             </NavLink>
-            <NavLink to="/mindmap" className={({isActive}) => `nav-item ${isActive ? 'active' : ''}`}>
-              <BrainCircuit size={20} />
-              Mindmap
+            <NavLink to="/quest" className={({isActive}) => `nav-item ${isActive ? 'active' : ''}`}>
+              <Swords size={20} />
+              闯关
+            </NavLink>
+            <NavLink to="/game" className={({isActive}) => `nav-item ${isActive ? 'active' : ''}`}>
+              <Puzzle size={20} />
+              记忆配对
             </NavLink>
           </div>
 
@@ -76,14 +104,14 @@ function App() {
         <main className="main-content">
           <Routes>
             <Route path="/chat" element={<ChatView />} />
-            <Route path="/plan" element={<StudyPlanView />} />
             <Route path="/flashcards" element={<FlashcardsView />} />
-            <Route path="/mindmap" element={<MindmapView />} />
+            <Route path="/game" element={<MemoryGame />} />
+            <Route path="/quest" element={<QuestView />} />
             <Route path="*" element={<Navigate to="/chat" replace />} />
           </Routes>
         </main>
       </div>
-    </BrowserRouter>
+    </>
   );
 }
 

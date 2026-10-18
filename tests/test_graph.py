@@ -114,6 +114,27 @@ def test_grade_node_partial_relevance(monkeypatch):
     assert result["relevance"] == "partial"
 
 
+def test_grade_node_accepts_fenced_json(monkeypatch):
+
+    fake_response = mock_llm_response(
+        '```json\n{\n  "relevance": "partial"\n}\n```'
+    )
+
+    mock_llm = MagicMock()
+    mock_llm.invoke.return_value = fake_response
+
+    monkeypatch.setattr(graph, "llm", mock_llm)
+
+    state = {
+        "student_question": "What is this report about?",
+        "context": [make_document()],
+    }
+
+    result = graph.grade_node(state)
+
+    assert result["relevance"] == "partial"
+
+
 def test_grade_node_none_when_no_context():
 
     state = {
@@ -176,7 +197,7 @@ def test_grade_node_invalid_relevance_defaults_to_none(monkeypatch):
     "relevance, expected_route",
     [
         ("full", "generate"),
-        ("partial", "web_search"),
+        ("partial", "generate"),
         ("none", "web_search"),
     ],
 )
